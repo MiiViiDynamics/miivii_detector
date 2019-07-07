@@ -1,0 +1,14 @@
+<launch>
+  <node name="miivii_yolo" pkg="miivii_detector" type="miivii_detector_node" output="screen" >
+    <param name="thresh" value="0.25"/>
+    <param name="nms" value="0.45"/>
+
+    <param name="camera_count" value="1" />
+
+    <!-- param, gmsl camera topic -->
+    <param name="camera1_topic" value="/usb_cam/image_raw" />
+    <param name="camera1_detect_results" value="/usb_cam/image_raw/detection_results" />
+    <param name="camera1_with_rect" value="/usb_cam/image_raw/image_raw_draw_rect" />
+
+  </node>
+</launch>
