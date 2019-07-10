@@ -211,7 +211,7 @@ class miivii_detector {
     if (bModelfileOK && bLabelFileOk) {
       bInitOk = true;
       MiiViiYolov3SDKConfig config(classes, thresh, nms, cache, int8, dla,
-                                   anchors, shape, output_name, camera_count);
+                                   anchors, shape, output_name, camera_count, MAX_CAMERA_SUPPORT);
       miiviiDetector =
           new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
     }
