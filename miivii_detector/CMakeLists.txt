@@ -1,5 +1,19 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(miivii_detector)
+
+
+#check the system version
+set(MAKE_CMD "cat /etc/miivii_release | awk -F \"  \" '{print $1}' | tr '[A-Z]' '[a-z]'")
+execute_process(COMMAND bash "-c" "${MAKE_CMD}" -E  OUTPUT_VARIABLE HDVERSION)
+if (${HDVERSION} MATCHES "4.2.0")
+  set(JPVERSION 420)
+  message(WARN "JPVERSION is ${JPVERSION}")
+else()
+  set(JPVERSION 421)
+  message(WARN "JPVERSION is ${JPVERSION}")
+endif()
+
+set(CMAKE_CXX_FLAGS " -Wall -std=c++11 -O0 -DJPVERSION=${JPVERSION}")
 
 set (CMAKE_CXX_STANDARD 11)
 ## Find catkin macros and libraries

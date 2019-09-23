@@ -27,12 +27,25 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#if JPVERSION == 420
 #include "MiiViiYoloSDKInterface.h"
+#elif JPVERSION == 421
+#include "MiiViiAlgrithmSDKInterface.h"
+#endif
 
 #include "rect_class_score.h"
 
 #include <autoware_msgs/DetectedObject.h>
 #include <autoware_msgs/DetectedObjectArray.h>
+
+#if JPVERSION == 421
+#define YOLO3C_CLASS_NUM   3
+const char lables_3c[YOLO3C_CLASS_NUM][10] = {
+  "person",
+  "bicycle",
+  "car"
+};
+#endif
 
 #define MAX_CAMERA_SUPPORT 4
 #define DEBUG_TIME 1
@@ -118,7 +131,11 @@ class miivii_detector {
   std::string caffemodel;
   std::string proto;
   bool bInitOk, bModelfileOK, bLabelFileOk;
+#if JPVERSION == 420
   MiiViiYolov3SDK* miiviiDetector;
+#elif JPVERSION == 421
+  MiiViiHumanBikeCarDetectionSDK* miiviiDetector;
+#endif
   std::string window_name;
   int queue_size_;
 
@@ -130,10 +147,11 @@ class miivii_detector {
     queue_size_ = 4;
     ROS_INFO("starting to miivii detect node construct function");
 
-    // init the modle, which is a must
+#if JPVERSION == 420
+    // init the modle, which is a must for JPVERSION 420
     nh_.param("cachemodel", cachemodel,
-              std::string("/opt/miivii/models/yolo/yolov3/"
-                          "yolov3_caffemodel.tensorcache"));
+              std::string("/opt/miivii/models/yolo/yolov3/APEX/"
+                          "yolov3_caffemodel_batch4.tensorcache"));
     ROS_INFO("cachemodel:%s", cachemodel.c_str());
     if (file_exists(cachemodel)) {
       bModelfileOK = true;
@@ -158,6 +176,14 @@ class miivii_detector {
       ROS_ERROR("label file does not exist");
       bLabelFileOk = false;
     }
+#elif JPVERSION == 421
+    // model will be inited in the SDK
+    // get label from lables_3c
+    for(int i = 0; i < YOLO3C_CLASS_NUM; i++) {
+      coco_label.push_back(string(lables_3c[i]));
+    }
+    classes = YOLO3C_CLASS_NUM;
+#endif
 
     // init camera related param
     nh_.param("camera_count", camera_count, 0);
@@ -208,6 +234,7 @@ class miivii_detector {
     shape = {416, 416, 3};
     output_name = {(char*)"yolo1", (char*)"yolo2", (char*)"yolo3"};
 
+#if JPVERSION == 420
     if (bModelfileOK && bLabelFileOk) {
       bInitOk = true;
       MiiViiYolov3SDKConfig config(classes, thresh, nms, cache, int8, dla,
@@ -215,6 +242,10 @@ class miivii_detector {
       miiviiDetector =
           new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
     }
+#elif JPVERSION == 421
+    miiviiDetector = new MiiViiHumanBikeCarDetectionSDK(0.5, camera_count);
+    bInitOk = true;
+#endif
 
     image_transport::ImageTransport it_(nh_);
 
@@ -296,6 +327,104 @@ class miivii_detector {
     }
   }
 
+  void DrawLabel(const autoware_msgs::DetectedObjectArray &in_detected_object,
+                            cv::Mat &image)
+  {
+    int kRectangleThickness = 2;
+    // Draw rectangles for each object
+    for(const autoware_msgs::DetectedObject& object : in_detected_object.objects)
+    //for (int kk = 0;kk<in_detected_object.size();kk++)
+    {
+      cv::Point rectangle_origin(object.x, object.y);
+      // label's property
+      const int font_face = cv::FONT_HERSHEY_DUPLEX;
+      const double font_scale = 1.0;//0.7;
+      const int font_thickness = 1;
+      int font_baseline = 0;
+      int icon_width = 40;
+      int icon_height = 40;
+      std::ostringstream label_one;
+      //std::ostringstream label_two;
+      cv::Size label_size = cv::getTextSize("0123456789",
+                                            font_face,
+                                            font_scale,
+                                            font_thickness,
+                                            &font_baseline);
+      cv::Point label_origin = cv::Point(rectangle_origin.x,
+                                        rectangle_origin.y - font_baseline - kRectangleThickness*2 - icon_height);
+      label_one << object.label<<"  "<<std::to_string(object.score);
+      // if (object.objectID > 0)
+      // {
+      //     label_one << " " << std::to_string(object.objectID);
+      // }
+      if(label_origin.x < 0)
+          label_origin.x = 0;
+      if(label_origin.y < 0)
+          label_origin.y = 0;
+      cv::Rect text_holder_rect;
+      text_holder_rect.x = label_origin.x;
+      text_holder_rect.y = label_origin.y;
+      text_holder_rect.width = label_size.width + icon_width;
+      if (text_holder_rect.x + text_holder_rect.width > image.cols)
+          text_holder_rect.width = image.cols - text_holder_rect.x - 1;
+      text_holder_rect.height = label_size.height + icon_height;
+      if (text_holder_rect.y + text_holder_rect.height > image.rows)
+          text_holder_rect.height = image.rows - text_holder_rect.y - 1;
+      cv::Mat roi = image(text_holder_rect);
+      cv::Mat text_holder (roi.size(), CV_8UC3, cv::Scalar(0,0,0));
+      double alpha = 0.3;
+      cv::addWeighted(text_holder, alpha, roi, 1.0 - alpha, 0.0, roi);
+      label_origin.x+= icon_width;
+      label_origin.y+= text_holder_rect.height / 3;
+
+      cv::putText(image,
+                  label_one.str(),
+                  label_origin,
+                  font_face,
+                  font_scale,
+                  cv::Scalar(cv::Scalar(object.color.r, object.color.g, object.color.b)),//CV_RGB(255, 255, 255),
+                  1,
+                  CV_AA);
+      label_origin.y+= text_holder_rect.height / 3;
+    }
+  }
+
+  void DrawImageRect(const autoware_msgs::DetectedObjectArray &in_detected_object,
+                                    cv::Mat &image)
+  {
+    int RectangleThickness = 2;
+    for(const autoware_msgs::DetectedObject& object : in_detected_object.objects)
+      {
+          if (object.x >= 0
+              && object.y >= 0
+              && object.width > 0
+              && object.height > 0)
+          {
+              int x2 = object.x + object.width;
+              if (x2 >= image.cols)
+                  x2 = image.cols - 1;
+              int y2 = object.y + object.height;
+              if (y2 >= image.rows)
+                  y2 = image.rows - 1;
+
+              cv::Mat image_roi = image(cv::Rect(cv::Point(object.x, object.y),  cv::Point(x2, y2)));
+              cv::Mat color_fill(image_roi.size(), CV_8UC3,  cv::Scalar(object.color.r, object.color.g, object.color.b));
+              double alpha = 0.15;
+              cv::addWeighted(color_fill, alpha, image_roi, 1.0 - alpha , 0.0, image_roi);
+              // Draw rectangle
+              cv::rectangle(image,
+                            cv::Point(object.x, object.y),
+                            cv::Point(x2, y2),
+                            cv::Scalar(cv::Scalar(object.color.r, object.color.g, object.color.b)),
+                            RectangleThickness,
+                            CV_AA,
+                            0);
+          }
+      }
+      // Draw object information label
+      DrawLabel(in_detected_object, image);
+  }
+
   //ugly implemtation, forgive me.
   void detectorCallback1(const sensor_msgs::ImageConstPtr& msg1) {
     vector<sensor_msgs::ImageConstPtr> list;
@@ -344,14 +473,18 @@ class miivii_detector {
     if (bInitOk) {
       double time;
       if (debug_time) time = what_time_is_it_now();
+#if JPVERSION == 420
       MiiViiInput* tmp = Preprocess(cvimages, shape[0], shape[1]);
       miiviiDetector->Inference(tmp, results);
       delete tmp;
+#elif JPVERSION == 421
+      miiviiDetector->Inference(cvimages, results);
+#endif
       if (debug_time)
         ROS_INFO("infer cost %f ms\n", (what_time_is_it_now() - time) * 1000);
     }
 
-    for (int i = 0; i < image_list.size(); i++) {
+    for (int i = 0; i < int(image_list.size()); i++) {
       // We publish empty message if no detection.
       // This will be kind to bag record.
       std::vector<RectClassScore<float>> detections;
@@ -360,30 +493,25 @@ class miivii_detector {
           cv_bridge::toCvCopy(image_list[i], enc::BGR8);
 
       for (vector<InferenceInfo>::iterator iter = results[i].begin();
-           iter != results[i].end(); iter++) {
+            iter != results[i].end(); iter++) {
+        if( iter->x0> cv_ptr->image.cols || iter->y0> cv_ptr->image.rows )
+          continue;
         detection.x = iter->x0;
         detection.y = iter->y0;
         detection.w = iter->x1 - iter->x0;
         detection.h = iter->y1 - iter->y0;
+        if (( detection.x + detection.w) >= cv_ptr->image.cols)
+          detection.w = cv_ptr->image.cols - 1-detection.x;
+        if ((detection.y + detection.h) >= cv_ptr->image.rows)
+          detection.h = cv_ptr->image.rows - 1-detection.y;
+
+       // printf("<MIIVII-DEBUG> [%s] %d (W %d, H %d ) RECT(%d %d %d %d)\n", __FUNCTION__, __LINE__, cv_ptr->image.cols, cv_ptr->image.rows,iter->x0, iter->y0, iter->x1, iter->y1);
         detection.score = iter->score;
         detection.class_type = iter->image_label;
 
         detections.push_back(detection);
-        int offset = iter->image_label * 123457 % classes;
-        int red = get_color(2, offset, classes);
-        int green = get_color(1, offset, classes);
-        int blue = get_color(0, offset, classes);
-
-        if (publish_result_image) {
-          cv::rectangle(cv_ptr->image,
-                        Rect(iter->x0, iter->y0, iter->x1 - iter->x0,
-                             iter->y1 - iter->y0),
-                        CV_RGB(red, green, blue), 3);
-          cv::putText(cv_ptr->image, coco_label[iter->image_label],
-                      Point(iter->x0, iter->y0), CV_FONT_HERSHEY_COMPLEX, 0.5,
-                      Scalar(red, green, blue), 2);
-        }
       }
+
 
       // publish result message
       autoware_msgs::DetectedObjectArray output_message;
@@ -392,9 +520,11 @@ class miivii_detector {
       publisher_objects_[i].publish(output_message);
 
       if (publish_result_image) {
+
+        DrawImageRect(output_message,  cv_ptr->image);
+
         cv_bridge::CvImage out_msg;
         out_msg.header = image_list[i]->header;
-        // out_msg.header.stamp = msg->header.stamp;
         out_msg.encoding = sensor_msgs::image_encodings::BGR8;
         out_msg.image = cv_ptr->image;
 
