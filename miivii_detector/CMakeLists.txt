@@ -8,8 +8,8 @@ execute_process(COMMAND bash "-c" "${MAKE_CMD}" -E  OUTPUT_VARIABLE HDVERSION)
 if (${HDVERSION} MATCHES "4.2.0")
   set(JPVERSION 420)
   message(WARN "JPVERSION is ${JPVERSION}")
-else()
-  set(JPVERSION 421)
+elseif (${HDVERSION} MATCHES "4.2.2")
+  set(JPVERSION 422)
   message(WARN "JPVERSION is ${JPVERSION}")
 endif()
 
@@ -60,9 +60,8 @@ catkin_package(CATKIN_DEPENDS
 ## Build ##
 ###########
 set(linux_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(MIIVIIYOLO_INCLUDES /opt/miivii/include)
 
-find_path(MIIVIIYOLO_INCLUDES MiiViiYoloSDKInterface.h
-          /opt/miivii/include)
 
 include_directories(include
   ${catkin_INCLUDE_DIRS}
@@ -81,7 +80,7 @@ target_link_libraries(${PROJECT_NAME}_node
   ${CUDA_LIBRARIES}
   ${catkin_LIBRARIES}
   ${Boost_LIBRARIES}
-  ${catkin_LIB_DIRS} miivii_accelerator
+  ${catkin_LIB_DIRS} mvyolo
 )
 
 #############

@@ -27,10 +27,13 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+
 #if JPVERSION == 420
 #include "MiiViiYoloSDKInterface.h"
-#elif JPVERSION == 421
-#include "MiiViiAlgrithmSDKInterface.h"
+
+#elif JPVERSION == 422
+#include "MvAlgrithm.h"
+
 #endif
 
 #include "rect_class_score.h"
@@ -38,7 +41,10 @@
 #include <autoware_msgs/DetectedObject.h>
 #include <autoware_msgs/DetectedObjectArray.h>
 
-#if JPVERSION == 421
+
+
+
+#if JPVERSION == 422
 #define YOLO3C_CLASS_NUM   3
 const char lables_3c[YOLO3C_CLASS_NUM][10] = {
   "person",
@@ -52,6 +58,7 @@ const char lables_3c[YOLO3C_CLASS_NUM][10] = {
 #define PUB_RESULT_IMAGE 1
 
 using namespace cv;
+using namespace std;
 namespace enc = sensor_msgs::image_encodings;
 
 using message_filters::sync_policies::ExactTime;
@@ -68,11 +75,7 @@ float colors[6][3] = {{1, 0, 1}, {0, 0, 1}, {0, 1, 1},
                       {0, 1, 0}, {1, 1, 0}, {1, 0, 0}};
 double image_clone = what_time_is_it_now();
 double infer;
-Mat image_buffer;
-MiiViiInput* input_buffer;
-boost::mutex io_mutex;
-std::vector<InferenceInfo> result;
-std::vector<InferenceInfo> result_trans;
+
 
 float get_color(int c, int x, int max) {
   float ratio = ((float)x / max) * 5;
@@ -133,8 +136,9 @@ class miivii_detector {
   bool bInitOk, bModelfileOK, bLabelFileOk;
 #if JPVERSION == 420
   MiiViiYolov3SDK* miiviiDetector;
-#elif JPVERSION == 421
-  MiiViiHumanBikeCarDetectionSDK* miiviiDetector;
+
+#elif JPVERSION == 422
+  miivii::yolo::MvHumanBikeCarDetect* miiviiDetector;
 #endif
   std::string window_name;
   int queue_size_;
@@ -176,7 +180,7 @@ class miivii_detector {
       ROS_ERROR("label file does not exist");
       bLabelFileOk = false;
     }
-#elif JPVERSION == 421
+#elif JPVERSION == 422
     // model will be inited in the SDK
     // get label from lables_3c
     for(int i = 0; i < YOLO3C_CLASS_NUM; i++) {
@@ -242,8 +246,10 @@ class miivii_detector {
       miiviiDetector =
           new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
     }
-#elif JPVERSION == 421
-    miiviiDetector = new MiiViiHumanBikeCarDetectionSDK(0.5, camera_count);
+
+
+#elif JPVERSION == 422
+    miiviiDetector = new miivii::yolo::MvHumanBikeCarDetect(0.5, camera_count);
     bInitOk = true;
 #endif
 
@@ -463,7 +469,7 @@ class miivii_detector {
   void detectorCallback(vector<sensor_msgs::ImageConstPtr> image_list) {
     // input vector in batch
     vector<cv::Mat> cvimages;
-    vector<vector<InferenceInfo>> results(image_list.size());
+    vector<vector<miivii::yolo::MvYoloResult>> results(image_list.size());
 
     for (auto it = begin(image_list); it != end(image_list); ++it) {
       cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(*it, enc::BGR8);
@@ -477,7 +483,7 @@ class miivii_detector {
       MiiViiInput* tmp = Preprocess(cvimages, shape[0], shape[1]);
       miiviiDetector->Inference(tmp, results);
       delete tmp;
-#elif JPVERSION == 421
+#elif JPVERSION == 422
       miiviiDetector->Inference(cvimages, results);
 #endif
       if (debug_time)
@@ -492,7 +498,7 @@ class miivii_detector {
       cv_bridge::CvImagePtr cv_ptr =
           cv_bridge::toCvCopy(image_list[i], enc::BGR8);
 
-      for (vector<InferenceInfo>::iterator iter = results[i].begin();
+      for (vector<miivii::yolo::MvYoloResult>::iterator iter = results[i].begin();
             iter != results[i].end(); iter++) {
         if( iter->x0> cv_ptr->image.cols || iter->y0> cv_ptr->image.rows )
           continue;
