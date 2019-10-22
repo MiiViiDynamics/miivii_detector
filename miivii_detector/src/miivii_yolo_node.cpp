@@ -28,12 +28,15 @@
 #include <unordered_map>
 #include <vector>
 
-#if JPVERSION == 420
-#include "MiiViiYoloSDKInterface.h"
 
-#elif JPVERSION == 422
-#include "MvAlgrithm.h"
-
+#if APEX
+  #if JPVERSION == 420
+    #include "MiiViiYoloSDKInterface.h"
+  #elif JPVERSION == 422
+    #include "MvAlgorithm.h"
+  #endif
+#else
+  #include "MiiViiYoloSDKInterface.h"
 #endif
 
 #include "rect_class_score.h"
@@ -41,21 +44,26 @@
 #include <autoware_msgs/DetectedObject.h>
 #include <autoware_msgs/DetectedObjectArray.h>
 
-
-
-
-#if JPVERSION == 422
-#define YOLO3C_CLASS_NUM   3
-const char lables_3c[YOLO3C_CLASS_NUM][10] = {
-  "person",
-  "bicycle",
-  "car"
-};
+#if APEX
+  #if JPVERSION == 422
+    #define YOLO3C_CLASS_NUM   3
+    const char lables_3c[YOLO3C_CLASS_NUM][10] = {
+      "person",
+      "bicycle",
+      "car"
+    };
+  #endif
 #endif
 
 #define MAX_CAMERA_SUPPORT 4
 #define DEBUG_TIME 1
 #define PUB_RESULT_IMAGE 1
+
+#define USE_DEBUG 1
+#if USE_DEBUG
+  #define DEBUG_PRINT \
+    ROS_INFO("<MIIVII-DEBUG> [%s] %d", __FUNCTION__, __LINE__);
+#endif
 
 using namespace cv;
 using namespace std;
@@ -92,13 +100,13 @@ class miivii_detector {
   using ExactPolicy2 = ExactTime<sensor_msgs::Image, sensor_msgs::Image>;
   using ExactPolicy3 =
       ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Image>;
-  using ExactPolicy4 = ExactTime<sensor_msgs::Image, sensor_msgs::Image,
-                                 sensor_msgs::Image, sensor_msgs::Image>;
+  using ExactPolicy4 = ExactTime< sensor_msgs::Image, sensor_msgs::Image,
+                                  sensor_msgs::Image, sensor_msgs::Image>;
   using ExactSync2 = message_filters::Synchronizer<ExactPolicy2>;
   using ExactSync3 = message_filters::Synchronizer<ExactPolicy3>;
   using ExactSync4 = message_filters::Synchronizer<ExactPolicy4>;
 
- public:
+public:
   ros::NodeHandle nh_;
   int camera_count;
 
@@ -112,7 +120,7 @@ class miivii_detector {
   boost::shared_ptr<ExactSync3> exact_sync3_;
   boost::shared_ptr<ExactSync4> exact_sync4_;
 
- public:
+public:
 
   bool publish_result_image;
   bool debug_time;           //是否在终端打印单帧处理耗时信息
@@ -134,59 +142,91 @@ class miivii_detector {
   std::string caffemodel;
   std::string proto;
   bool bInitOk, bModelfileOK, bLabelFileOk;
-#if JPVERSION == 420
+#if APEX
+  #if JPVERSION == 420
+    MiiViiYolov3SDK* miiviiDetector;
+  #elif JPVERSION == 422
+    miivii::yolo::MvHumanBikeCarDetect* miiviiDetector;
+  #endif
+#else
   MiiViiYolov3SDK* miiviiDetector;
-
-#elif JPVERSION == 422
-  miivii::yolo::MvHumanBikeCarDetect* miiviiDetector;
 #endif
   std::string window_name;
   int queue_size_;
 
- public:
+public:
   miivii_detector() : nh_("~") {
     bInitOk = false;
     caffemodel = "";
     proto = "";
     queue_size_ = 4;
     ROS_INFO("starting to miivii detect node construct function");
-
-#if JPVERSION == 420
-    // init the modle, which is a must for JPVERSION 420
-    nh_.param("cachemodel", cachemodel,
-              std::string("/opt/miivii/models/yolo/yolov3/APEX/"
-                          "yolov3_caffemodel_batch4.tensorcache"));
-    ROS_INFO("cachemodel:%s", cachemodel.c_str());
-    if (file_exists(cachemodel)) {
-      bModelfileOK = true;
-    } else {
-      ROS_ERROR("mode file does not exist");
-      bModelfileOK = false;
-    }
-
-    nh_.param("label_file", label_file,
-              std::string("/opt/miivii/models/yolo/yolov3/yolo.labels"));
-    ROS_INFO("label_file:%s", label_file.c_str());
-    if (file_exists(label_file)) {
-      bLabelFileOk = true;
-      std::ifstream labels(label_file);
-      string line;
-      classes = 0;
-      while (std::getline(labels, line)) {
-        coco_label.push_back(string(line));
-        classes++;
+#if APEX
+  #if JPVERSION == 420
+      // init the modle, which is a must for JPVERSION 420
+      nh_.param("cachemodel", cachemodel,
+                std::string("/opt/miivii/models/yolo/yolov3/APEX/"
+                            "yolov3_caffemodel_batch4.tensorcache"));
+      ROS_INFO("cachemodel:%s", cachemodel.c_str());
+      if (file_exists(cachemodel)) {
+        bModelfileOK = true;
+      } else {
+        ROS_ERROR("mode file does not exist");
+        bModelfileOK = false;
       }
-    } else {
-      ROS_ERROR("label file does not exist");
-      bLabelFileOk = false;
-    }
-#elif JPVERSION == 422
-    // model will be inited in the SDK
-    // get label from lables_3c
-    for(int i = 0; i < YOLO3C_CLASS_NUM; i++) {
-      coco_label.push_back(string(lables_3c[i]));
-    }
-    classes = YOLO3C_CLASS_NUM;
+
+      nh_.param("label_file", label_file,
+                std::string("/opt/miivii/models/yolo/yolov3/yolo.labels"));
+      ROS_INFO("label_file:%s", label_file.c_str());
+      if (file_exists(label_file)) {
+        bLabelFileOk = true;
+        std::ifstream labels(label_file);
+        string line;
+        classes = 0;
+        while (std::getline(labels, line)) {
+          coco_label.push_back(string(line));
+          classes++;
+        }
+      } else {
+        ROS_ERROR("label file does not exist");
+        bLabelFileOk = false;
+      }
+  #elif JPVERSION == 422
+      // model will be inited in the SDK
+      // get label from lables_3c
+      for(int i = 0; i < YOLO3C_CLASS_NUM; i++) {
+        coco_label.push_back(string(lables_3c[i]));
+      }
+      classes = YOLO3C_CLASS_NUM;
+  #endif
+#else
+      nh_.param("cachemodel", cachemodel,
+                std::string("/opt/miivii/models/yolo/yolov3/"
+                            "yolov3_caffemodel.tensorcache"));
+      ROS_INFO("cachemodel:%s", cachemodel.c_str());
+      if (file_exists(cachemodel)) {
+        bModelfileOK = true;
+      } else {
+        ROS_ERROR("mode file does not exist");
+        bModelfileOK = false;
+      }
+
+      nh_.param("label_file", label_file,
+                std::string("/opt/miivii/models/yolo/yolov3/yolo.labels"));
+      ROS_INFO("label_file:%s", label_file.c_str());
+      if (file_exists(label_file)) {
+        bLabelFileOk = true;
+        std::ifstream labels(label_file);
+        string line;
+        classes = 0;
+        while (std::getline(labels, line)) {
+          coco_label.push_back(string(line));
+          classes++;
+        }
+      } else {
+        ROS_ERROR("label file does not exist");
+        bLabelFileOk = false;
+      }
 #endif
 
     // init camera related param
@@ -233,24 +273,31 @@ class miivii_detector {
     nh_.param("dla", dla, 0);
 
     ROS_INFO("%f %f", thresh, nms);
-    anchors = {10, 13, 16,  30,  33, 23,  30,  61,  62,
-               45, 59, 119, 116, 90, 156, 198, 373, 326};
+    anchors = { 10, 13, 16,  30,  33, 23,  30,  61,  62,
+                45, 59, 119, 116, 90, 156, 198, 373, 326};
     shape = {416, 416, 3};
     output_name = {(char*)"yolo1", (char*)"yolo2", (char*)"yolo3"};
-
-#if JPVERSION == 420
-    if (bModelfileOK && bLabelFileOk) {
+#if APEX
+  #if JPVERSION == 420
+      if (bModelfileOK && bLabelFileOk) {
+        bInitOk = true;
+        MiiViiYolov3SDKConfig config(classes, thresh, nms, cache, int8, dla,
+                                    anchors, shape, output_name, camera_count, MAX_CAMERA_SUPPORT);
+        miiviiDetector =
+            new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
+      }
+  #elif JPVERSION == 422
+      miiviiDetector = new miivii::yolo::MvHumanBikeCarDetect(0.5, camera_count);
       bInitOk = true;
-      MiiViiYolov3SDKConfig config(classes, thresh, nms, cache, int8, dla,
-                                   anchors, shape, output_name, camera_count, MAX_CAMERA_SUPPORT);
-      miiviiDetector =
-          new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
-    }
-
-
-#elif JPVERSION == 422
-    miiviiDetector = new miivii::yolo::MvHumanBikeCarDetect(0.5, camera_count);
-    bInitOk = true;
+  #endif
+#else
+  if (bModelfileOK && bLabelFileOk) {
+        bInitOk = true;
+        MiiViiYolov3SDKConfig config(classes, thresh, nms, cache, int8, dla,
+                                    anchors, shape, output_name, camera_count, MAX_CAMERA_SUPPORT);
+        miiviiDetector =
+            new MiiViiYolov3SDK(cachemodel, proto, caffemodel, config);
+      }
 #endif
 
     image_transport::ImageTransport it_(nh_);
@@ -479,12 +526,18 @@ class miivii_detector {
     if (bInitOk) {
       double time;
       if (debug_time) time = what_time_is_it_now();
-#if JPVERSION == 420
-      MiiViiInput* tmp = Preprocess(cvimages, shape[0], shape[1]);
-      miiviiDetector->Inference(tmp, results);
-      delete tmp;
-#elif JPVERSION == 422
-      miiviiDetector->Inference(cvimages, results);
+#if APEX
+  #if JPVERSION == 420
+        MiiViiInput* tmp = Preprocess(cvimages, shape[0], shape[1]);
+        miiviiDetector->Inference(tmp, results);
+        delete tmp;
+  #elif JPVERSION == 422
+        miiviiDetector->Inference(cvimages, results);
+  #endif
+#else
+  MiiViiInput* tmp = Preprocess(cvimages, shape[0], shape[1]);
+        miiviiDetector->Inference(tmp, results);
+        delete tmp;
 #endif
       if (debug_time)
         ROS_INFO("infer cost %f ms\n", (what_time_is_it_now() - time) * 1000);
@@ -518,10 +571,12 @@ class miivii_detector {
         detections.push_back(detection);
       }
 
-
       // publish result message
       autoware_msgs::DetectedObjectArray output_message;
       output_message.header = image_list[i]->header;
+
+      output_message.header.stamp = (cv_ptr->header.stamp);
+
       convert_rect_to_image_obj(detections, output_message);
       publisher_objects_[i].publish(output_message);
 
