@@ -202,7 +202,7 @@ public:
 #else
       nh_.param("cachemodel", cachemodel,
                 std::string("/opt/miivii/models/yolo/yolov3/"
-                            "yolov3_caffemodel.tensorcache"));
+                            "yolov3_caffemodel_batch32.tensorcache"));
       ROS_INFO("cachemodel:%s", cachemodel.c_str());
       if (file_exists(cachemodel)) {
         bModelfileOK = true;
